@@ -1,14 +1,10 @@
-import { getRandomChars, methodNotAllowed, ok, unauthorized } from 'next-basics';
-import { deleteWebsite, getWebsite, getWebsiteById, updateWebsite } from 'queries';
 import { allowQuery } from 'lib/auth';
 import { useAuth, useCors } from 'lib/middleware';
-import { validate } from 'uuid';
+import { getRandomChars, methodNotAllowed, ok, unauthorized } from 'next-basics';
+import { deleteWebsite, getAccount, getWebsite, getWebsiteByUuid, updateWebsite } from 'queries';
 
 export default async (req, res) => {
-  const { id } = req.query;
-
-  const websiteId = +id;
-  const where = validate(id) ? { website_uuid: id } : { website_id: +id };
+  const { id: websiteId } = req.query;
 
   if (req.method === 'GET') {
     await useCors(req, res);
@@ -17,7 +13,7 @@ export default async (req, res) => {
       return unauthorized(res);
     }
 
-    const website = await getWebsite(where);
+    const website = await getWebsiteByUuid(websiteId);
 
     return ok(res, website);
   }
@@ -25,24 +21,31 @@ export default async (req, res) => {
   if (req.method === 'POST') {
     await useAuth(req, res);
 
-    const { is_admin: currentUserIsAdmin, user_id: currentUserId } = req.auth;
+    const { isAdmin: currentUserIsAdmin, userId: currentUserId, accountUuid } = req.auth;
     const { name, domain, owner, enable_share_url } = req.body;
+    let account;
 
-    const website = await getWebsiteById(websiteId);
+    if (accountUuid) {
+      account = await getAccount({ accountUuid });
+    }
 
-    if (website.user_id !== currentUserId && !currentUserIsAdmin) {
+    const website = await getWebsite(websiteId);
+
+    const shareId = enable_share_url ? website.shareId || getRandomChars(8) : null;
+
+    if (website.userId !== currentUserId && !currentUserIsAdmin) {
       return unauthorized(res);
     }
 
-    let { share_id } = website;
-
-    if (enable_share_url) {
-      share_id = share_id ? share_id : getRandomChars(8);
-    } else {
-      share_id = null;
-    }
-
-    await updateWebsite(websiteId, { name, domain, share_id, user_id: +owner });
+    await updateWebsite(
+      {
+        name,
+        domain,
+        shareId: shareId,
+        userId: account ? account.id : +owner,
+      },
+      { websiteUuid: websiteId },
+    );
 
     return ok(res);
   }
